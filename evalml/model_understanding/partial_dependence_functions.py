@@ -319,6 +319,7 @@ def graph_partial_dependence(
     class_label=None,
     grid_resolution=100,
     kind="average",
+    show_feature_distribution=False,
 ):
     """Create an one-way or two-way partial dependence plot.
 
@@ -343,6 +344,9 @@ def graph_partial_dependence(
         kind ({'average', 'individual', 'both'}): Type of partial dependence to plot. 'average' creates a regular partial dependence
              (PD) graph, 'individual' creates an individual conditional expectation (ICE) plot, and 'both' creates a
              single-figure PD and ICE plot. ICE plots can only be shown for one-way partial dependence plots.
+        show_feature_distribution (bool): If True, overlays a histogram of the feature's values in X on a secondary y-axis
+            of one-way partial dependence plots, so that sparsely populated regions of the feature can be identified.
+            Ignored for two-way partial dependence plots. Defaults to False.
 
     Returns:
         plotly.graph_objects.Figure: figure object containing the partial dependence data for plotting
@@ -423,6 +427,12 @@ def graph_partial_dependence(
             showlegend=True,
         )
 
+    show_distribution = show_feature_distribution and mode == "one-way"
+    if show_distribution:
+        feature_values = (
+            X.ww.iloc[:, features] if isinstance(features, int) else X.ww[features]
+        )
+
     fig = _go.Figure(layout=layout)
     if isinstance(pipeline, evalml.pipelines.MulticlassClassificationPipeline):
         class_labels = [class_label] if class_label is not None else pipeline.classes_
@@ -443,7 +453,17 @@ def graph_partial_dependence(
             class_label: str(class_label) for class_label in class_labels
         }
         # Don't specify share_xaxis and share_yaxis so that we get tickmarks in each subplot
-        fig = _subplots.make_subplots(rows=rows, cols=cols, subplot_titles=class_labels)
+        specs = (
+            [[{"secondary_y": True}] * cols for _ in range(rows)]
+            if show_distribution
+            else None
+        )
+        fig = _subplots.make_subplots(
+            rows=rows,
+            cols=cols,
+            subplot_titles=class_labels,
+            specs=specs,
+        )
         for i, label in enumerate(class_labels):
             label_df = (
                 part_dep.loc[part_dep.class_label == label]
@@ -490,6 +510,13 @@ def graph_partial_dependence(
                             name="Partial Dependence: " + class_labels_mapping[label],
                         )
                     fig.add_trace(trace, row=row, col=col)
+            if show_distribution and mode == "one-way":
+                fig.add_trace(
+                    _feature_distribution_trace(_go, feature_values, yaxis=None),
+                    row=row,
+                    col=col,
+                    secondary_y=True,
+                )
 
         fig.update_layout(layout)
 
@@ -511,7 +538,15 @@ def graph_partial_dependence(
                 ),
             )
             fig.update_xaxes(title=title, range=xrange)
-            fig.update_yaxes(range=yrange)
+            if show_distribution:
+                fig.update_yaxes(range=yrange, secondary_y=False)
+                fig.update_yaxes(
+                    title="Feature Count",
+                    showgrid=False,
+                    secondary_y=True,
+                )
+            else:
+                fig.update_yaxes(range=yrange)
     elif kind == "individual" and ice_data is not None:
         fig = _add_ice_plot(_go, fig, ice_data)
     elif part_dep is not None:
@@ -546,7 +581,32 @@ def graph_partial_dependence(
                     line=dict(width=3, color="rgb(99,110,250)"),
                 )
             fig.add_trace(trace)
+    if show_distribution and not isinstance(
+        pipeline,
+        evalml.pipelines.MulticlassClassificationPipeline,
+    ):
+        fig.add_trace(_feature_distribution_trace(_go, feature_values, yaxis="y2"))
+        fig.update_layout(
+            yaxis2=dict(
+                title="Feature Count",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+            ),
+        )
     return fig
+
+
+def _feature_distribution_trace(_go, feature_values, yaxis="y2"):
+    """Build a translucent histogram trace of a feature's values."""
+    kwargs = {"yaxis": yaxis} if yaxis is not None else {}
+    return _go.Histogram(
+        x=feature_values,
+        name="Feature Distribution",
+        marker=dict(color="rgb(180,180,180)"),
+        opacity=0.5,
+        **kwargs,
+    )
 
 
 def _update_fig_with_two_way_partial_dependence(

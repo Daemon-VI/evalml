@@ -3146,3 +3146,67 @@ def test_partial_dependence_grid_values_for_numeric_data(
         assert any(val % 1 for val in grid_values)
     else:
         assert not any(val % 1 for val in grid_values)
+
+
+@pytest.mark.parametrize("feature", ["numeric", "categorical", 0])
+def test_graph_partial_dependence_show_feature_distribution(feature):
+    X = pd.DataFrame(
+        {
+            "numeric": np.linspace(0, 10, 60),
+            "categorical": pd.Series(["a", "b", "c"] * 20, dtype="category"),
+        },
+    )
+    y = pd.Series(np.linspace(0, 1, 60))
+    pipeline = RegressionPipeline(
+        component_graph=["One Hot Encoder", "Random Forest Regressor"],
+        parameters={"Random Forest Regressor": {"n_estimators": 5}},
+    )
+    pipeline.fit(X, y)
+
+    default_fig = graph_partial_dependence(pipeline, X, features=feature)
+    assert not any(t.type == "histogram" for t in default_fig.data)
+
+    fig = graph_partial_dependence(
+        pipeline,
+        X,
+        features=feature,
+        show_feature_distribution=True,
+    )
+    hists = [t for t in fig.data if t.type == "histogram"]
+    assert len(hists) == 1
+    assert hists[0].name == "Feature Distribution"
+    assert fig.layout.yaxis2.overlaying == "y"
+
+
+def test_graph_partial_dependence_show_feature_distribution_two_way_ignored():
+    X = pd.DataFrame({"a": np.linspace(0, 1, 50), "b": np.linspace(1, 2, 50)})
+    y = pd.Series(np.linspace(0, 1, 50))
+    pipeline = RegressionPipeline(
+        component_graph=["Random Forest Regressor"],
+        parameters={"Random Forest Regressor": {"n_estimators": 5}},
+    )
+    pipeline.fit(X, y)
+    fig = graph_partial_dependence(
+        pipeline,
+        X,
+        features=("a", "b"),
+        show_feature_distribution=True,
+    )
+    assert not any(t.type == "histogram" for t in fig.data)
+
+
+def test_graph_partial_dependence_show_feature_distribution_multiclass():
+    X = pd.DataFrame({"a": np.linspace(0, 1, 90), "b": np.linspace(1, 2, 90)})
+    y = pd.Series(["x", "y", "z"] * 30)
+    pipeline = MulticlassClassificationPipeline(
+        component_graph=["Random Forest Classifier"],
+        parameters={"Random Forest Classifier": {"n_estimators": 5}},
+    )
+    pipeline.fit(X, y)
+    fig = graph_partial_dependence(
+        pipeline,
+        X,
+        features="a",
+        show_feature_distribution=True,
+    )
+    assert len([t for t in fig.data if t.type == "histogram"]) == 3

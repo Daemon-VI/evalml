@@ -2,6 +2,7 @@ Release Notes
 -------------
 **Future Releases**
     * Enhancements
+        * Added ``show_feature_distribution`` option to ``graph_partial_dependence`` to overlay a histogram of the feature on one-way plots :pr:`4453`
     * Fixes
         * Switched windows nightly tests to run serially instead of in parallel :pr:`4452`
     * Changes
